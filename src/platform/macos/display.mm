@@ -453,6 +453,9 @@ namespace platf {
         return std::make_unique<avcodec_encode_device_t>();
       } else if (pix_fmt == pix_fmt_e::nv12 || pix_fmt == pix_fmt_e::p010) {
         auto device = std::make_unique<nv12_zero_device>();
+        if (pix_fmt == pix_fmt_e::p010) {
+          BOOST_LOG(warning) << "10-bit capture requested on AVFoundation fallback; macOS AVFoundation path remains 8-bit"sv;
+        }
 
         device->init(static_cast<void *>(av_capture), pix_fmt, setResolution, setPixelFormat);
 
@@ -683,6 +686,7 @@ namespace platf {
 
         sc_display->sc_capture = [[SCCapture alloc] initWithDisplay:sc_display->display_id frameRate:config.framerate];
         if (sc_display->sc_capture) {
+          sc_display->sc_capture.hdrDisplay = display_is_hdr(sc_display->display_id);
           sc_display->width = sc_display->sc_capture.frameWidth;
           sc_display->height = sc_display->sc_capture.frameHeight;
           sc_display->env_width = sc_display->width;

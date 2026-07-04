@@ -24,6 +24,8 @@ API_AVAILABLE(macos(12.3))
   self.displayID = displayID;
   self.frameRate = frameRate;
   self.pixelFormat = kCVPixelFormatType_32BGRA;
+  self.hdrDisplay = NO;
+  self.loggedPixelFormat = NO;
 
   if (mode) {
     self.frameWidth = (int)CGDisplayModeGetPixelWidth(mode);
@@ -63,6 +65,17 @@ API_AVAILABLE(macos(12.3))
 - (void)setFrameWidth:(int)frameWidth frameHeight:(int)frameHeight {
   self.frameWidth = frameWidth;
   self.frameHeight = frameHeight;
+}
+
+static NSString *pixelFormatName(OSType format) {
+  char chars[5] = {
+    (char)((format >> 24) & 0xFF),
+    (char)((format >> 16) & 0xFF),
+    (char)((format >> 8) & 0xFF),
+    (char)(format & 0xFF),
+    0,
+  };
+  return [NSString stringWithFormat:@"%s (0x%08x)", chars, format];
 }
 
 - (SCDisplay *)findDisplayWithID:(CGDirectDisplayID)displayID {
@@ -149,6 +162,12 @@ API_AVAILABLE(macos(12.3))
     config.pixelFormat = self.pixelFormat;
     config.queueDepth = 5;
     config.showsCursor = YES;
+    config.colorSpaceName = self.hdrDisplay ? kCGColorSpaceITUR_2020 : kCGColorSpaceDisplayP3;
+    if (@available(macOS 15.0, *)) {
+      if (self.hdrDisplay) {
+        config.captureDynamicRange = SCCaptureDynamicRangeHDRLocalDisplay;
+      }
+    }
 
     NSError *error = nil;
     self.stream = [[SCStream alloc] initWithFilter:filter configuration:config delegate:self];
@@ -230,6 +249,15 @@ API_AVAILABLE(macos(12.3))
       }
     }
     return;
+  }
+
+  if (!self.loggedPixelFormat) {
+    self.loggedPixelFormat = YES;
+    OSType receivedFormat = CVPixelBufferGetPixelFormatType(pixelBuffer);
+    NSLog(@"[SCCapture] Received pixel format %@", pixelFormatName(receivedFormat));
+    if (self.pixelFormat == kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange && receivedFormat != self.pixelFormat) {
+      NSLog(@"[SCCapture] Warning: requested P010 capture but received %@", pixelFormatName(receivedFormat));
+    }
   }
 
   SCVideoFrameCallbackBlock callback = nil;

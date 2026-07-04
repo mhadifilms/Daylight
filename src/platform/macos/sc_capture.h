@@ -18,6 +18,8 @@ API_AVAILABLE(macos(12.3))
 @property(nonatomic, assign) OSType pixelFormat;
 @property(nonatomic, assign) int frameWidth;
 @property(nonatomic, assign) int frameHeight;
+@property(nonatomic, assign) BOOL hdrDisplay;
+@property(nonatomic, assign) BOOL loggedPixelFormat;
 
 @property(nonatomic, strong) SCStream *stream;
 @property(nonatomic, strong) SCShareableContent *shareableContent;
