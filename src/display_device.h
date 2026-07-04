@@ -99,6 +99,14 @@ namespace display_device {
   void revert_configuration();
 
   /**
+   * @brief Create a virtual display matching the client's requested resolution (macOS only).
+   * @param video_config User's video related configuration.
+   * @param session Session information containing width, height, and fps.
+   * @note Must be called after encoder probing to avoid probing against a transient display.
+   */
+  void create_virtual_display(const config::video_t &video_config, const rtsp_stream::launch_session_t &session);
+
+  /**
    * @brief Reset persisted display state and the captured initial state.
    *
    * This is normally used to get out of the "broken" state where the algorithm wants

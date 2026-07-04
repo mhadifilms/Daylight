@@ -1057,6 +1057,10 @@ namespace nvhttp {
 
         return;
       }
+
+      // Create the macOS virtual display after encoder probing succeeds so
+      // probes run against stable physical displays.
+      display_device::create_virtual_display(config::video, *launch_session);
     }
 
     auto encryption_mode = net::encryption_mode_for_address(request->remote_endpoint().address());
@@ -1169,6 +1173,10 @@ namespace nvhttp {
 
         return;
       }
+
+      // Create the macOS virtual display after encoder probing succeeds so
+      // probes run against stable physical displays.
+      display_device::create_virtual_display(config::video, *launch_session);
     }
 
     auto encryption_mode = net::encryption_mode_for_address(request->remote_endpoint().address());

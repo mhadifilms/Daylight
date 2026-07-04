@@ -415,8 +415,14 @@ namespace platf {
     display->prevent_display_sleep();
     wake_displays_for_detection(display_name);
 
-    // Default to main display
-    display->display_id = CGMainDisplayID();
+    const auto virtual_display_id = platf::virtual_display_get_id();
+    if (virtual_display_id != 0) {
+      BOOST_LOG(info) << "Using virtual display (id: "sv << virtual_display_id << ") for capture"sv;
+      display->display_id = static_cast<CGDirectDisplayID>(virtual_display_id);
+    } else {
+      // Default to main display
+      display->display_id = CGMainDisplayID();
+    }
 
     // Print all displays available with it's name and id
     BOOST_LOG(info) << "Detecting displays"sv;
@@ -430,13 +436,13 @@ namespace platf {
       NSString *name = item[@"displayName"];
       // We are using CGGetActiveDisplayList that only returns active displays so hardcoded connected value in log to true
       BOOST_LOG(info) << "Detected display: "sv << name.UTF8String << " (id: "sv << [NSString stringWithFormat:@"%@", display_id].UTF8String << ") connected: true"sv;
-      if (!display_name.empty() && std::atoi(display_name.c_str()) == [display_id unsignedIntValue]) {
+      if (virtual_display_id == 0 && !display_name.empty() && std::atoi(display_name.c_str()) == [display_id unsignedIntValue]) {
         display->display_id = [display_id unsignedIntValue];
         matched_configured_display = true;
       }
     }
 
-    if (!matched_configured_display) {
+    if (virtual_display_id == 0 && !matched_configured_display) {
       BOOST_LOG(warning) << "Configured display ["sv << display_name
                          << "] was not found in the active display list. Falling back to main display ["sv
                          << display->display_id << "]."sv;

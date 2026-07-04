@@ -14,6 +14,7 @@
 #include <display_device/settings_manager_interface.h>
 #include <mutex>
 #include <regex>
+#include <thread>
 
 // local includes
 #include "audio.h"
@@ -771,6 +772,31 @@ namespace display_device {
 
     // Error already logged for failed_to_parse_tag_t case, and we also don't
     // want to revert active configuration in case we have any
+  }
+
+  void create_virtual_display([[maybe_unused]] const config::video_t &video_config, [[maybe_unused]] const rtsp_stream::launch_session_t &session) {
+#ifdef __APPLE__
+    if (video_config.virtual_display != "enabled" || session.width <= 0 || session.height <= 0 || session.fps <= 0) {
+      return;
+    }
+
+    const auto vd_id = platf::virtual_display_create(session.width, session.height, session.fps);
+    if (vd_id == 0) {
+      BOOST_LOG(warning) << "Failed to create virtual display, falling back to existing display";
+      return;
+    }
+
+    BOOST_LOG(info) << "Created virtual display " << vd_id << " (" << session.width << "x" << session.height << "@" << session.fps << "Hz)";
+    for (int attempt = 0; attempt < 50; ++attempt) {
+      if (platf::virtual_display_is_ready()) {
+        BOOST_LOG(info) << "Virtual display " << vd_id << " is active";
+        return;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds {100});
+    }
+
+    BOOST_LOG(warning) << "Virtual display " << vd_id << " was created but did not become active within 5 seconds";
+#endif
   }
 
   void configure_display(const SingleDisplayConfiguration &config) {

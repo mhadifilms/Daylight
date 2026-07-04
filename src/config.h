@@ -117,6 +117,7 @@ namespace config {
     std::string encoder;  ///< Encoder backend name selected by configuration.
     std::string adapter_name;  ///< Display adapter name selected in configuration.
     std::string output_name;  ///< Display output name selected in configuration.
+    std::string virtual_display;  ///< Whether to create on-demand virtual displays on macOS.
 
     /**
      * @brief Display-device integration settings.

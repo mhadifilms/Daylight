@@ -48,6 +48,8 @@ set(PLATFORM_TARGET_FILES
         "${CMAKE_SOURCE_DIR}/src/platform/macos/av_img_t.h"
         "${CMAKE_SOURCE_DIR}/src/platform/macos/av_video.h"
         "${CMAKE_SOURCE_DIR}/src/platform/macos/av_video.m"
+        "${CMAKE_SOURCE_DIR}/src/platform/macos/virtual_display.h"
+        "${CMAKE_SOURCE_DIR}/src/platform/macos/virtual_display.m"
         "${CMAKE_SOURCE_DIR}/src/platform/macos/display.mm"
         "${CMAKE_SOURCE_DIR}/src/platform/macos/input.cpp"
         "${CMAKE_SOURCE_DIR}/src/platform/macos/microphone.mm"
@@ -59,3 +61,28 @@ set(PLATFORM_TARGET_FILES
         "${CMAKE_SOURCE_DIR}/third-party/TPCircularBuffer/TPCircularBuffer.c"
         "${CMAKE_SOURCE_DIR}/third-party/TPCircularBuffer/TPCircularBuffer.h"
         ${APPLE_PLIST_FILE})
+
+# virtual_display.m uses ARC for CGVirtualDisplay object lifecycle management.
+set_source_files_properties(
+        "${CMAKE_SOURCE_DIR}/src/platform/macos/virtual_display.m"
+        PROPERTIES COMPILE_FLAGS "-fobjc-arc")
+
+# Build vd_helper: standalone subprocess for creating and holding CGVirtualDisplay.
+add_executable(vd_helper "${CMAKE_SOURCE_DIR}/src/platform/macos/vd_helper.m")
+set_source_files_properties(
+        "${CMAKE_SOURCE_DIR}/src/platform/macos/vd_helper.m"
+        PROPERTIES COMPILE_FLAGS "-fobjc-arc")
+target_link_libraries(vd_helper PRIVATE
+        "-framework Foundation"
+        "-framework AppKit"
+        "-framework CoreGraphics"
+        "-F/System/Library/PrivateFrameworks"
+        "-framework SkyLight")
+set_target_properties(vd_helper PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+
+add_executable(get_display_origin "${CMAKE_SOURCE_DIR}/src/platform/macos/get_display_origin.m")
+target_link_libraries(get_display_origin PRIVATE
+        "-framework CoreGraphics")
+set_target_properties(get_display_origin PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
