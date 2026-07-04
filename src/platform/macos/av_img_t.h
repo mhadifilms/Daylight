@@ -48,8 +48,18 @@ namespace platf {
      */
     explicit av_pixel_buf_t(CMSampleBufferRef sb):
         buf(
-          CMSampleBufferGetImageBuffer(sb)
+          (CVPixelBufferRef) CFRetain(CMSampleBufferGetImageBuffer(sb))
         ) {
+      CVPixelBufferLockBaseAddress(buf, kCVPixelBufferLock_ReadOnly);
+    }
+
+    /**
+     * @brief Lock and retain a Core Video pixel buffer directly.
+     *
+     * @param pixel_buffer Pixel buffer to retain for captured-image lifetime.
+     */
+    explicit av_pixel_buf_t(CVPixelBufferRef pixel_buffer):
+        buf((CVPixelBufferRef) CFRetain(pixel_buffer)) {
       CVPixelBufferLockBaseAddress(buf, kCVPixelBufferLock_ReadOnly);
     }
 
@@ -59,6 +69,9 @@ namespace platf {
      * @return Pointer to the first byte of image data in the pixel buffer.
      */
     [[nodiscard]] uint8_t *data() const {
+      if (CVPixelBufferIsPlanar(buf) && CVPixelBufferGetPlaneCount(buf) > 0) {
+        return static_cast<uint8_t *>(CVPixelBufferGetBaseAddressOfPlane(buf, 0));
+      }
       return static_cast<uint8_t *>(CVPixelBufferGetBaseAddress(buf));
     }
 
@@ -66,6 +79,7 @@ namespace platf {
     ~av_pixel_buf_t() {
       if (buf != nullptr) {
         CVPixelBufferUnlockBaseAddress(buf, kCVPixelBufferLock_ReadOnly);
+        CVPixelBufferRelease(buf);
       }
     }
   };

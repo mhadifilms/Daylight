@@ -36,6 +36,7 @@ list(APPEND SUNSHINE_EXTERNAL_LIBRARIES
         ${CORE_VIDEO_LIBRARY}
         ${FOUNDATION_LIBRARY}
         ${IOKIT_LIBRARY}
+        "-framework ScreenCaptureKit"
         ${VIDEO_TOOLBOX_LIBRARY})
 
 set(APPLE_PLIST_TEMPLATE "${SUNSHINE_SOURCE_ASSETS_DIR}/macos/build/Info.plist.in")
@@ -52,6 +53,8 @@ set(PLATFORM_TARGET_FILES
         "${CMAKE_SOURCE_DIR}/src/platform/macos/virtual_display.m"
         "${CMAKE_SOURCE_DIR}/src/platform/macos/hid_gamepad.h"
         "${CMAKE_SOURCE_DIR}/src/platform/macos/hid_gamepad.m"
+        "${CMAKE_SOURCE_DIR}/src/platform/macos/sc_capture.h"
+        "${CMAKE_SOURCE_DIR}/src/platform/macos/sc_capture.m"
         "${CMAKE_SOURCE_DIR}/src/platform/macos/display.mm"
         "${CMAKE_SOURCE_DIR}/src/platform/macos/input.cpp"
         "${CMAKE_SOURCE_DIR}/src/platform/macos/microphone.mm"
@@ -67,6 +70,9 @@ set(PLATFORM_TARGET_FILES
 # virtual_display.m uses ARC for CGVirtualDisplay object lifecycle management.
 set_source_files_properties(
         "${CMAKE_SOURCE_DIR}/src/platform/macos/virtual_display.m"
+        PROPERTIES COMPILE_FLAGS "-fobjc-arc")
+set_source_files_properties(
+        "${CMAKE_SOURCE_DIR}/src/platform/macos/sc_capture.m"
         PROPERTIES COMPILE_FLAGS "-fobjc-arc")
 set_source_files_properties(
         "${CMAKE_SOURCE_DIR}/src/platform/macos/input.cpp"

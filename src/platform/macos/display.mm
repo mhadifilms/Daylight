@@ -5,6 +5,7 @@
 
 // standard includes
 #include <cstdlib>
+#include <cstring>
 #include <sstream>
 #include <thread>
 
@@ -19,6 +20,7 @@
 #include "src/platform/macos/av_video.h"
 #include "src/platform/macos/misc.h"
 #include "src/platform/macos/nv12_zero_device.h"
+#include "src/platform/macos/sc_capture.h"
 
 // Avoid conflict between AVFoundation and libavutil both defining AVMediaType
 /**
@@ -212,6 +214,98 @@ namespace platf {
         }
       }
     }
+
+    int bytes_per_row(CVPixelBufferRef pixel_buffer) {
+      if (CVPixelBufferIsPlanar(pixel_buffer) && CVPixelBufferGetPlaneCount(pixel_buffer) > 0) {
+        return static_cast<int>(CVPixelBufferGetBytesPerRowOfPlane(pixel_buffer, 0));
+      }
+
+      return static_cast<int>(CVPixelBufferGetBytesPerRow(pixel_buffer));
+    }
+
+    void set_image_geometry(img_t *img, CVPixelBufferRef pixel_buffer, const av_pixel_buf_t &pixel_buffer_ref) {
+      img->data = pixel_buffer_ref.data();
+      img->width = static_cast<int>(CVPixelBufferGetWidth(pixel_buffer));
+      img->height = static_cast<int>(CVPixelBufferGetHeight(pixel_buffer));
+      img->row_pitch = bytes_per_row(pixel_buffer);
+      img->pixel_pitch = img->width > 0 ? img->row_pitch / img->width : 0;
+    }
+
+    void populate_image_from_sample(img_t *img, CMSampleBufferRef sample_buffer) {
+      auto new_sample_buffer = std::make_shared<av_sample_buf_t>(sample_buffer);
+      auto new_pixel_buffer = std::make_shared<av_pixel_buf_t>(sample_buffer);
+      auto av_img = static_cast<av_img_t *>(img);
+
+      auto old_data_retainer = std::make_shared<temp_retain_av_img_t>(
+        av_img->sample_buffer,
+        av_img->pixel_buffer,
+        img->data
+      );
+
+      av_img->sample_buffer = new_sample_buffer;
+      av_img->pixel_buffer = new_pixel_buffer;
+      set_image_geometry(img, new_pixel_buffer->buf, *new_pixel_buffer);
+
+      old_data_retainer = nullptr;
+    }
+
+    bool process_frame(CMSampleBufferRef sample_buffer, img_t *img) {
+      if (!sample_buffer || !CMSampleBufferGetImageBuffer(sample_buffer)) {
+        return false;
+      }
+
+      populate_image_from_sample(img, sample_buffer);
+      return true;
+    }
+
+    int populate_dummy_img(img_t *img, int width, int height, OSType pixel_format) {
+      NSDictionary *attrs = @{
+        (NSString *) kCVPixelBufferIOSurfacePropertiesKey: @{},
+      };
+      CVPixelBufferRef pixel_buffer = nullptr;
+      CVReturn result = CVPixelBufferCreate(
+        kCFAllocatorDefault,
+        width,
+        height,
+        pixel_format,
+        (__bridge CFDictionaryRef) attrs,
+        &pixel_buffer
+      );
+      if (result != kCVReturnSuccess || !pixel_buffer) {
+        return 1;
+      }
+
+      CVPixelBufferLockBaseAddress(pixel_buffer, 0);
+      if (CVPixelBufferIsPlanar(pixel_buffer)) {
+        const auto plane_count = CVPixelBufferGetPlaneCount(pixel_buffer);
+        for (size_t plane = 0; plane < plane_count; ++plane) {
+          auto *base = static_cast<std::uint8_t *>(CVPixelBufferGetBaseAddressOfPlane(pixel_buffer, plane));
+          const auto row_bytes = CVPixelBufferGetBytesPerRowOfPlane(pixel_buffer, plane);
+          const auto plane_height = CVPixelBufferGetHeightOfPlane(pixel_buffer, plane);
+          std::memset(base, plane == 0 ? 0x00 : 0x80, row_bytes * plane_height);
+        }
+      } else {
+        auto *base = static_cast<std::uint8_t *>(CVPixelBufferGetBaseAddress(pixel_buffer));
+        std::memset(base, 0x00, CVPixelBufferGetBytesPerRow(pixel_buffer) * CVPixelBufferGetHeight(pixel_buffer));
+      }
+      CVPixelBufferUnlockBaseAddress(pixel_buffer, 0);
+
+      auto new_pixel_buffer = std::make_shared<av_pixel_buf_t>(pixel_buffer);
+      CVPixelBufferRelease(pixel_buffer);
+
+      auto av_img = static_cast<av_img_t *>(img);
+      auto old_data_retainer = std::make_shared<temp_retain_av_img_t>(
+        av_img->sample_buffer,
+        av_img->pixel_buffer,
+        img->data
+      );
+      av_img->sample_buffer = nullptr;
+      av_img->pixel_buffer = new_pixel_buffer;
+      set_image_geometry(img, new_pixel_buffer->buf, *new_pixel_buffer);
+      old_data_retainer = nullptr;
+
+      return 0;
+    }
   }  // namespace
 
   /**
@@ -259,33 +353,16 @@ namespace platf {
 
     capture_e capture(const push_captured_image_cb_t &push_captured_image_cb, const pull_free_image_cb_t &pull_free_image_cb, bool *cursor) override {
       auto signal = [av_capture capture:^(CMSampleBufferRef sampleBuffer) {
-        auto new_sample_buffer = std::make_shared<av_sample_buf_t>(sampleBuffer);
-        auto new_pixel_buffer = std::make_shared<av_pixel_buf_t>(new_sample_buffer->buf);
-
         std::shared_ptr<img_t> img_out;
         if (!pull_free_image_cb(img_out)) {
           // got interrupt signal
           // returning false here stops capture backend
           return false;
         }
-        auto av_img = std::static_pointer_cast<av_img_t>(img_out);
 
-        auto old_data_retainer = std::make_shared<temp_retain_av_img_t>(
-          av_img->sample_buffer,
-          av_img->pixel_buffer,
-          img_out->data
-        );
-
-        av_img->sample_buffer = new_sample_buffer;
-        av_img->pixel_buffer = new_pixel_buffer;
-        img_out->data = new_pixel_buffer->data();
-
-        img_out->width = (int) CVPixelBufferGetWidth(new_pixel_buffer->buf);
-        img_out->height = (int) CVPixelBufferGetHeight(new_pixel_buffer->buf);
-        img_out->row_pitch = (int) CVPixelBufferGetBytesPerRow(new_pixel_buffer->buf);
-        img_out->pixel_pitch = img_out->row_pitch / img_out->width;
-
-        old_data_retainer = nullptr;
+        if (!process_frame(sampleBuffer, img_out.get())) {
+          return true;
+        }
 
         if (!push_captured_image_cb(std::move(img_out), true)) {
           // got interrupt signal
@@ -348,36 +425,7 @@ namespace platf {
         return 1;
       }
 
-      auto signal = [av_capture capture:^(CMSampleBufferRef sampleBuffer) {
-        auto new_sample_buffer = std::make_shared<av_sample_buf_t>(sampleBuffer);
-        auto new_pixel_buffer = std::make_shared<av_pixel_buf_t>(new_sample_buffer->buf);
-
-        auto av_img = (av_img_t *) img;
-
-        auto old_data_retainer = std::make_shared<temp_retain_av_img_t>(
-          av_img->sample_buffer,
-          av_img->pixel_buffer,
-          img->data
-        );
-
-        av_img->sample_buffer = new_sample_buffer;
-        av_img->pixel_buffer = new_pixel_buffer;
-        img->data = new_pixel_buffer->data();
-
-        img->width = (int) CVPixelBufferGetWidth(new_pixel_buffer->buf);
-        img->height = (int) CVPixelBufferGetHeight(new_pixel_buffer->buf);
-        img->row_pitch = (int) CVPixelBufferGetBytesPerRow(new_pixel_buffer->buf);
-        img->pixel_pitch = img->row_pitch / img->width;
-
-        old_data_retainer = nullptr;
-
-        // returning false here stops capture backend
-        return false;
-      }];
-
-      dispatch_semaphore_wait(signal, DISPATCH_TIME_FOREVER);
-
-      return 0;
+      return populate_dummy_img(img, av_capture.frameWidth, av_capture.frameHeight, av_capture.pixelFormat);
     }
 
     /**
@@ -405,23 +453,125 @@ namespace platf {
     }
   };
 
+  struct sc_display_t: public display_t {
+    SCCapture *sc_capture {};
+    CGDirectDisplayID display_id {};
+    IOPMAssertionID display_sleep_assertion {kIOPMNullAssertionID};
+
+    ~sc_display_t() override {
+      [sc_capture release];
+
+      if (display_sleep_assertion != kIOPMNullAssertionID) {
+        const auto result = IOPMAssertionRelease(display_sleep_assertion);
+        if (result != kIOReturnSuccess) {
+          BOOST_LOG(warning) << "Unable to release display sleep assertion, IOReturn: "sv << result;
+        }
+      }
+    }
+
+    void prevent_display_sleep() {
+      if (display_sleep_assertion != kIOPMNullAssertionID) {
+        return;
+      }
+
+      const auto result = IOPMAssertionCreateWithName(
+        kIOPMAssertPreventUserIdleDisplaySleep,
+        kIOPMAssertionLevelOn,
+        CFSTR("Sunshine ScreenCaptureKit display capture"),
+        &display_sleep_assertion
+      );
+
+      if (result == kIOReturnSuccess) {
+        BOOST_LOG(info) << "Created display sleep prevention assertion, assertion id: "sv << display_sleep_assertion;
+        return;
+      }
+
+      display_sleep_assertion = kIOPMNullAssertionID;
+      BOOST_LOG(warning) << "Unable to create display sleep prevention assertion, IOReturn: "sv << result;
+    }
+
+    capture_e capture(const push_captured_image_cb_t &push_captured_image_cb, const pull_free_image_cb_t &pull_free_image_cb, bool *cursor) override {
+      auto signal = [sc_capture capture:^(CMSampleBufferRef sampleBuffer) {
+        std::shared_ptr<img_t> img_out;
+        if (!pull_free_image_cb(img_out)) {
+          return false;
+        }
+
+        if (!process_frame(sampleBuffer, img_out.get())) {
+          return true;
+        }
+
+        return push_captured_image_cb(std::move(img_out), true);
+      }];
+
+      if (!signal) {
+        return capture_e::error;
+      }
+
+      while (dispatch_semaphore_wait(signal, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC)) != 0) {
+        std::shared_ptr<img_t> img_out;
+        if (!pull_free_image_cb(img_out)) {
+          [sc_capture stopCapture];
+          return capture_e::ok;
+        }
+
+        if (!push_captured_image_cb(std::move(img_out), false)) {
+          [sc_capture stopCapture];
+          return capture_e::ok;
+        }
+      }
+
+      return capture_e::ok;
+    }
+
+    std::shared_ptr<img_t> alloc_img() override {
+      return std::make_shared<av_img_t>();
+    }
+
+    int dummy_img(img_t *img) override {
+      if (!platf::is_screen_capture_allowed()) {
+        return 1;
+      }
+
+      return populate_dummy_img(img, sc_capture.frameWidth, sc_capture.frameHeight, sc_capture.pixelFormat);
+    }
+
+    std::unique_ptr<avcodec_encode_device_t> make_avcodec_encode_device(pix_fmt_e pix_fmt) override {
+      if (pix_fmt == pix_fmt_e::yuv420p) {
+        sc_capture.pixelFormat = kCVPixelFormatType_32BGRA;
+        return std::make_unique<avcodec_encode_device_t>();
+      } else if (pix_fmt == pix_fmt_e::nv12 || pix_fmt == pix_fmt_e::p010) {
+        auto device = std::make_unique<nv12_zero_device>();
+        device->init(static_cast<void *>(sc_capture), pix_fmt, setResolution, setPixelFormat);
+        return device;
+      }
+
+      BOOST_LOG(error) << "Unsupported Pixel Format."sv;
+      return nullptr;
+    }
+
+    static void setResolution(void *display, int width, int height) {
+      [static_cast<SCCapture *>(display) setFrameWidth:width frameHeight:height];
+    }
+
+    static void setPixelFormat(void *display, OSType pixelFormat) {
+      static_cast<SCCapture *>(display).pixelFormat = pixelFormat;
+    }
+  };
+
   std::shared_ptr<display_t> display(platf::mem_type_e hwdevice_type, const std::string &display_name, const video::config_t &config) {
     if (hwdevice_type != platf::mem_type_e::system && hwdevice_type != platf::mem_type_e::videotoolbox) {
       BOOST_LOG(error) << "Could not initialize display with the given hw device type."sv;
       return nullptr;
     }
 
-    auto display = std::make_shared<av_display_t>();
-    display->prevent_display_sleep();
     wake_displays_for_detection(display_name);
 
+    CGDirectDisplayID selected_display_id = CGMainDisplayID();
     const auto virtual_display_id = platf::virtual_display_get_id();
     if (virtual_display_id != 0) {
       BOOST_LOG(info) << "Using virtual display (id: "sv << virtual_display_id << ") for capture"sv;
-      display->display_id = static_cast<CGDirectDisplayID>(virtual_display_id);
-    } else {
-      // Default to main display
-      display->display_id = CGMainDisplayID();
+      selected_display_id = static_cast<CGDirectDisplayID>(virtual_display_id);
     }
 
     // Print all displays available with it's name and id
@@ -437,7 +587,7 @@ namespace platf {
       // We are using CGGetActiveDisplayList that only returns active displays so hardcoded connected value in log to true
       BOOST_LOG(info) << "Detected display: "sv << name.UTF8String << " (id: "sv << [NSString stringWithFormat:@"%@", display_id].UTF8String << ") connected: true"sv;
       if (virtual_display_id == 0 && !display_name.empty() && std::atoi(display_name.c_str()) == [display_id unsignedIntValue]) {
-        display->display_id = [display_id unsignedIntValue];
+        selected_display_id = [display_id unsignedIntValue];
         matched_configured_display = true;
       }
     }
@@ -445,8 +595,34 @@ namespace platf {
     if (virtual_display_id == 0 && !matched_configured_display) {
       BOOST_LOG(warning) << "Configured display ["sv << display_name
                          << "] was not found in the active display list. Falling back to main display ["sv
-                         << display->display_id << "]."sv;
+                         << selected_display_id << "]."sv;
     }
+
+    if (@available(macOS 12.3, *)) {
+      if ([SCCapture isAvailable]) {
+        auto sc_display = std::make_shared<sc_display_t>();
+        sc_display->display_id = selected_display_id;
+        sc_display->prevent_display_sleep();
+
+        log_display_diagnostic(sc_display->display_id, "selected for ScreenCaptureKit capture");
+        BOOST_LOG(info) << "Configuring selected display ("sv << sc_display->display_id << ") to stream via ScreenCaptureKit"sv;
+
+        sc_display->sc_capture = [[SCCapture alloc] initWithDisplay:sc_display->display_id frameRate:config.framerate];
+        if (sc_display->sc_capture) {
+          sc_display->width = sc_display->sc_capture.frameWidth;
+          sc_display->height = sc_display->sc_capture.frameHeight;
+          sc_display->env_width = sc_display->width;
+          sc_display->env_height = sc_display->height;
+          return sc_display;
+        }
+
+        BOOST_LOG(warning) << "ScreenCaptureKit setup failed, falling back to AVFoundation"sv;
+      }
+    }
+
+    auto display = std::make_shared<av_display_t>();
+    display->display_id = selected_display_id;
+    display->prevent_display_sleep();
 
     log_display_diagnostic(display->display_id, "selected for AVFoundation capture");
     BOOST_LOG(info) << "Configuring selected display ("sv << display->display_id << ") to stream"sv;
