@@ -16,7 +16,7 @@ struct CaptureSession {
   NSCondition *captureStopped;  ///< Capture stopped.
 };
 
-static const int kMaxDisplays = 32;
+enum { kMaxDisplays = 32 };
 
 /**
  * @brief AVFoundation video capture controller used by the macOS backend.

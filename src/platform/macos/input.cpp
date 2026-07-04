@@ -22,12 +22,16 @@
 #include "src/input.h"
 #include "src/logging.h"
 #include "src/platform/common.h"
+#include "src/platform/macos/hid_gamepad.h"
 #include "src/utility.h"
 
 constexpr auto MULTICLICK_DELAY_MS = std::chrono::milliseconds(500);  ///< Maximum gap between clicks that macOS should treat as a double click.
+#define MAX_GAMEPADS 4
 
 namespace platf {
   using namespace std::literals;
+
+  enum class gamepad_mode_e { none, hid };
 
   constexpr int WHEEL_DELTA = 120;  ///< Protocol or platform constant for wheel delta.
   constexpr double DEFAULT_SCROLLWHEEL_SCALING = 0.3125;  ///< Protocol or platform constant for default scrollwheel scaling.
@@ -58,6 +62,10 @@ namespace platf {
      * @brief Last mouse event.
      */
     std::chrono::steady_clock::steady_clock::time_point last_mouse_event[3][2];  // timestamp of last mouse events
+
+    bool hid_available {};
+    gamepad_mode_e gamepad_modes[MAX_GAMEPADS] {};
+    HIDGamepad *hid_gamepads[MAX_GAMEPADS] {};
   };
 
   // A struct to hold a Windows keycode to Mac virtual keycode mapping.
@@ -377,16 +385,61 @@ const KeyCodeMap kKeyCodesMap[] = {
   }
 
   int alloc_gamepad(input_t &input, const gamepad_id_t &id, const gamepad_arrival_t &metadata, feedback_queue_t feedback_queue) {
-    BOOST_LOG(info) << "alloc_gamepad: Gamepad not yet implemented for MacOS."sv;
+    auto macos_input = static_cast<macos_input_t *>(input.get());
+    if (!macos_input->hid_available) {
+      BOOST_LOG(warning) << "Virtual HID gamepad unavailable on macOS. AMFI may still be enabled."sv;
+      return -1;
+    }
+
+    for (int i = 0; i < MAX_GAMEPADS; i++) {
+      if (macos_input->gamepad_modes[i] != gamepad_mode_e::none) {
+        continue;
+      }
+
+      HIDGamepad *hid = [[HIDGamepad alloc] initWithIndex:i];
+      if ([hid createDevice]) {
+        macos_input->hid_gamepads[i] = hid;
+        macos_input->gamepad_modes[i] = gamepad_mode_e::hid;
+        BOOST_LOG(info) << "Gamepad "sv << i << " allocated (HID virtual device mode)"sv;
+        return i;
+      }
+
+      [hid release];
+      BOOST_LOG(warning) << "Gamepad "sv << i << ": HID virtual device creation failed"sv;
+    }
+
+    BOOST_LOG(warning) << "No available gamepad slots"sv;
     return -1;
   }
 
   void free_gamepad(input_t &input, int nr) {
-    BOOST_LOG(info) << "free_gamepad: Gamepad not yet implemented for MacOS."sv;
+    auto macos_input = static_cast<macos_input_t *>(input.get());
+    if (nr < 0 || nr >= MAX_GAMEPADS || macos_input->gamepad_modes[nr] == gamepad_mode_e::none) {
+      return;
+    }
+
+    if (macos_input->hid_gamepads[nr]) {
+      [macos_input->hid_gamepads[nr] disconnect];
+      [macos_input->hid_gamepads[nr] release];
+      macos_input->hid_gamepads[nr] = nil;
+    }
+    macos_input->gamepad_modes[nr] = gamepad_mode_e::none;
+    BOOST_LOG(info) << "Gamepad "sv << nr << " freed"sv;
   }
 
   void gamepad_update(input_t &input, int nr, const gamepad_state_t &gamepad_state) {
-    BOOST_LOG(info) << "gamepad: Gamepad not yet implemented for MacOS."sv;
+    auto macos_input = static_cast<macos_input_t *>(input.get());
+    if (nr < 0 || nr >= MAX_GAMEPADS || macos_input->gamepad_modes[nr] != gamepad_mode_e::hid || !macos_input->hid_gamepads[nr]) {
+      return;
+    }
+
+    [macos_input->hid_gamepads[nr] updateState:gamepad_state.buttonFlags
+                                    leftStickX:gamepad_state.lsX
+                                    leftStickY:gamepad_state.lsY
+                                   rightStickX:gamepad_state.rsX
+                                   rightStickY:gamepad_state.rsY
+                                   leftTrigger:gamepad_state.lt
+                                  rightTrigger:gamepad_state.rt];
   }
 
   // returns current mouse location:
@@ -723,6 +776,13 @@ const KeyCodeMap kKeyCodesMap[] = {
     macos_input->mouse_down[1] = false;
     macos_input->mouse_down[2] = false;
 
+    macos_input->hid_available = [HIDGamepad isAvailable];
+    for (int i = 0; i < MAX_GAMEPADS; i++) {
+      macos_input->gamepad_modes[i] = gamepad_mode_e::none;
+      macos_input->hid_gamepads[i] = nil;
+    }
+    BOOST_LOG(info) << "macOS virtual HID gamepad support: "sv << (macos_input->hid_available ? "available"sv : "unavailable"sv);
+
     BOOST_LOG(debug) << "macOS scroll speed: com.apple.scrollwheel.scaling="sv << macos_input->scrollwheel_scaling << ", lines per detent="sv << macos_input->scroll_lines_per_detent << ", pixels per line="sv << CGEventSourceGetPixelsPerLine(macos_input->source);
     BOOST_LOG(debug) << "Display "sv << macos_input->display << ", pixel dimension: " << CGDisplayPixelsWide(macos_input->display) << "x"sv << CGDisplayPixelsHigh(macos_input->display);
 
@@ -732,6 +792,13 @@ const KeyCodeMap kKeyCodesMap[] = {
   void freeInput(void *p) {
     const auto *input = static_cast<macos_input_t *>(p);
 
+    for (int i = 0; i < MAX_GAMEPADS; i++) {
+      if (input->hid_gamepads[i]) {
+        [input->hid_gamepads[i] disconnect];
+        [input->hid_gamepads[i] release];
+      }
+    }
+
     CFRelease(input->source);
     CFRelease(input->keyboard_source);
     CFRelease(input->mouse_event);
@@ -740,11 +807,19 @@ const KeyCodeMap kKeyCodesMap[] = {
   }
 
   std::vector<supported_gamepad_t> &supported_gamepads(input_t *input) {
-    static std::vector gamepads {
-      supported_gamepad_t {"", false, "gamepads.macos_not_implemented"}
+    static std::vector unavailable_gamepads {
+      supported_gamepad_t {"", false, "gamepads.macos_hid_unavailable"}
+    };
+    static std::vector available_gamepads {
+      supported_gamepad_t {"macos-hid", true, "gamepads.macos_hid"}
     };
 
-    return gamepads;
+    if (input) {
+      const auto macos_input = static_cast<macos_input_t *>(input->get());
+      return macos_input->hid_available ? available_gamepads : unavailable_gamepads;
+    }
+
+    return [HIDGamepad isAvailable] ? available_gamepads : unavailable_gamepads;
   }
 
   /**

@@ -50,6 +50,8 @@ set(PLATFORM_TARGET_FILES
         "${CMAKE_SOURCE_DIR}/src/platform/macos/av_video.m"
         "${CMAKE_SOURCE_DIR}/src/platform/macos/virtual_display.h"
         "${CMAKE_SOURCE_DIR}/src/platform/macos/virtual_display.m"
+        "${CMAKE_SOURCE_DIR}/src/platform/macos/hid_gamepad.h"
+        "${CMAKE_SOURCE_DIR}/src/platform/macos/hid_gamepad.m"
         "${CMAKE_SOURCE_DIR}/src/platform/macos/display.mm"
         "${CMAKE_SOURCE_DIR}/src/platform/macos/input.cpp"
         "${CMAKE_SOURCE_DIR}/src/platform/macos/microphone.mm"
@@ -66,6 +68,9 @@ set(PLATFORM_TARGET_FILES
 set_source_files_properties(
         "${CMAKE_SOURCE_DIR}/src/platform/macos/virtual_display.m"
         PROPERTIES COMPILE_FLAGS "-fobjc-arc")
+set_source_files_properties(
+        "${CMAKE_SOURCE_DIR}/src/platform/macos/input.cpp"
+        PROPERTIES COMPILE_FLAGS "-x objective-c++")
 
 # Build vd_helper: standalone subprocess for creating and holding CGVirtualDisplay.
 add_executable(vd_helper "${CMAKE_SOURCE_DIR}/src/platform/macos/vd_helper.m")
