@@ -10,6 +10,7 @@
 #import <Foundation/Foundation.h>
 #import <AppKit/AppKit.h>
 #import <CoreGraphics/CoreGraphics.h>
+#include <math.h>
 #include <signal.h>
 #include <unistd.h>
 
@@ -71,6 +72,47 @@ static BOOL checkDisplayInList(uint32_t targetID, uint32_t *outCount) {
     }
   }
   return NO;
+}
+
+static CGSize physicalSizeForResolution(int width, int height) {
+  const double targetPPI = 163.0;
+  const double maxDiagonalInches = 32.0;
+  const double diagonalPixels = hypot((double)width, (double)height);
+  const double diagonalInches = fmin(diagonalPixels / targetPPI, maxDiagonalInches);
+  const double diagonalMM = diagonalInches * 25.4;
+
+  return CGSizeMake(
+    diagonalMM * ((double)width / diagonalPixels),
+    diagonalMM * ((double)height / diagonalPixels)
+  );
+}
+
+static void addMode(NSMutableArray *modes, int width, int height, int fps) {
+  if (width <= 0 || height <= 0 || fps <= 0) {
+    return;
+  }
+
+  CGVirtualDisplayMode *mode = [[CGVirtualDisplayMode alloc] initWithWidth:(unsigned int)width
+                                                                    height:(unsigned int)height
+                                                               refreshRate:(double)fps];
+  if (mode) {
+    [modes addObject:mode];
+  }
+}
+
+static NSArray *modeListForResolution(int width, int height, int fps) {
+  NSMutableArray *modes = [NSMutableArray array];
+  const int widths[] = { width, width / 2, width / 4 };
+  const int heights[] = { height, height / 2, height / 4 };
+
+  for (size_t i = 0; i < 3; i++) {
+    addMode(modes, widths[i], heights[i], fps);
+    if (fps != 60) {
+      addMode(modes, widths[i], heights[i], 60);
+    }
+  }
+
+  return modes;
 }
 
 static void forceExtendMode(CGDirectDisplayID virtualID) {
@@ -140,7 +182,10 @@ int main(int argc, const char *argv[]) {
     int height = atoi(argv[2]);
     int fps = atoi(argv[3]);
 
-    if (width <= 0 || height <= 0 || fps <= 0) {
+    if (width <= 0 || height <= 0 || fps <= 0 || width > 7680 || height > 4320) {
+      if (width > 7680 || height > 4320) {
+        fprintf(stderr, "[vd_helper] Requested display %dx%d exceeds 7680x4320 maximum\n", width, height);
+      }
       fprintf(stdout, "0\n");
       fflush(stdout);
       return 1;
@@ -167,32 +212,27 @@ int main(int argc, const char *argv[]) {
     desc.serialNum = arc4random();
     desc.maxPixelsWide = (unsigned int)width;
     desc.maxPixelsHigh = (unsigned int)height;
-    desc.sizeInMillimeters = CGSizeMake(597, 336);
+    desc.sizeInMillimeters = physicalSizeForResolution(width, height);
     desc.whitePoint = CGPointMake(0.3127, 0.3290);
-    desc.redPrimary = CGPointMake(0.64, 0.33);
-    desc.greenPrimary = CGPointMake(0.30, 0.60);
-    desc.bluePrimary = CGPointMake(0.15, 0.06);
+    desc.redPrimary = CGPointMake(0.680, 0.320);
+    desc.greenPrimary = CGPointMake(0.265, 0.690);
+    desc.bluePrimary = CGPointMake(0.150, 0.060);
     [desc setDispatchQueue:dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0)];
     desc.terminationHandler = ^(id s, id d) {
       fprintf(stderr, "[vd_helper] Virtual display terminated by system\n");
     };
 
-    CGVirtualDisplayMode *nativeMode = [[CGVirtualDisplayMode alloc] initWithWidth:(unsigned int)width
-                                                                          height:(unsigned int)height
-                                                                     refreshRate:(double)fps];
-    if (!nativeMode) {
-      fprintf(stderr, "[vd_helper] Failed to create CGVirtualDisplayMode\n");
+    NSArray *displayModes = modeListForResolution(width, height, fps);
+    if (displayModes.count == 0) {
+      fprintf(stderr, "[vd_helper] Failed to create CGVirtualDisplayMode list\n");
       fprintf(stdout, "0\n");
       fflush(stdout);
       return 1;
     }
 
-    CGVirtualDisplayMode *halfMode = [[CGVirtualDisplayMode alloc] initWithWidth:(unsigned int)(width / 2)
-                                                                         height:(unsigned int)(height / 2)
-                                                                    refreshRate:(double)fps];
     CGVirtualDisplaySettings *settings = [[CGVirtualDisplaySettings alloc] init];
     settings.hiDPI = 1;
-    settings.modes = halfMode ? @[nativeMode, halfMode] : @[nativeMode];
+    settings.modes = displayModes;
 
     CGVirtualDisplay *display = [[CGVirtualDisplay alloc] initWithDescriptor:desc];
     if (!display) {
