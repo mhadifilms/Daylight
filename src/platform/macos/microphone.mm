@@ -2,6 +2,9 @@
  * @file src/platform/macos/microphone.mm
  * @brief Definitions for microphone capture on macOS.
  */
+// lib includes
+#include <boost/algorithm/string/predicate.hpp>
+
 // local includes
 #include "src/config.h"
 #include "src/logging.h"
@@ -100,7 +103,12 @@ namespace platf {
       mic->av_audio_capture.hostAudioEnabled = host_audio_enabled ? YES : NO;
       BOOST_LOG(debug) << "Set hostAudioEnabled to: "sv << (host_audio_enabled ? "YES" : "NO");
 
-      if (config::audio.sink.empty()) {
+      const auto use_system_audio = config::audio.sink.empty() ||
+                                    boost::iequals(config::audio.sink, "system") ||
+                                    boost::iequals(config::audio.sink, "desktop") ||
+                                    boost::iequals(config::audio.sink, "screencapturekit");
+
+      if (use_system_audio) {
         // Use macOS system-wide audio tap
         BOOST_LOG(info) << "Using macOS system audio tap for capture."sv;
         BOOST_LOG(info) << "Sample rate: "sv << sample_rate << ", Frame size: "sv << frame_size << ", Channels: "sv << channels;
