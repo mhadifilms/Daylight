@@ -569,9 +569,15 @@ namespace platf {
 
     CGDirectDisplayID selected_display_id = CGMainDisplayID();
     const auto virtual_display_id = platf::virtual_display_get_id();
-    if (virtual_display_id != 0) {
+    const auto use_virtual_display = config::video.virtual_display == "enabled" &&
+                                     virtual_display_id != 0 &&
+                                     CGDisplayIsActive(static_cast<CGDirectDisplayID>(virtual_display_id));
+    if (use_virtual_display) {
       BOOST_LOG(info) << "Using virtual display (id: "sv << virtual_display_id << ") for capture"sv;
       selected_display_id = static_cast<CGDirectDisplayID>(virtual_display_id);
+    } else if (virtual_display_id != 0) {
+      BOOST_LOG(warning) << "Ignoring stale or disabled virtual display id "sv << virtual_display_id
+                         << "; falling back to configured display selection"sv;
     }
 
     // Print all displays available with it's name and id
@@ -586,13 +592,13 @@ namespace platf {
       NSString *name = item[@"displayName"];
       // We are using CGGetActiveDisplayList that only returns active displays so hardcoded connected value in log to true
       BOOST_LOG(info) << "Detected display: "sv << name.UTF8String << " (id: "sv << [NSString stringWithFormat:@"%@", display_id].UTF8String << ") connected: true"sv;
-      if (virtual_display_id == 0 && !display_name.empty() && std::atoi(display_name.c_str()) == [display_id unsignedIntValue]) {
+      if (!use_virtual_display && !display_name.empty() && std::atoi(display_name.c_str()) == [display_id unsignedIntValue]) {
         selected_display_id = [display_id unsignedIntValue];
         matched_configured_display = true;
       }
     }
 
-    if (virtual_display_id == 0 && !matched_configured_display) {
+    if (!use_virtual_display && !matched_configured_display) {
       BOOST_LOG(warning) << "Configured display ["sv << display_name
                          << "] was not found in the active display list. Falling back to main display ["sv
                          << selected_display_id << "]."sv;
