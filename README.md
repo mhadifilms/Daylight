@@ -56,6 +56,8 @@ daylight
 
 Moonlight and VideoToolbox define the practical ceiling. Daylight targets 10-bit 4:2:0 HEVC Main10 or AV1 for HDR review; VideoToolbox does not provide a practical 4:4:4 encode path for this use case. For grading review, select HEVC Main10 or AV1 in the Moonlight client when available and use wired networking where possible.
 
+Daylight defaults `max_bitrate` to 150 Mbps for 4K HDR review. HEVC Main10 and AV1 10-bit are advertised through Sunshine's existing encoder probe results, so they appear to Moonlight only when the active VideoToolbox path successfully probes support.
+
 ## Attribution
 
 Daylight is GPLv3 software based on:

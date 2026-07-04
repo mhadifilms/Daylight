@@ -696,7 +696,7 @@ namespace config {
       {}  // wa
     },  // display_device
 
-    0,  // max_bitrate
+    150000,  // max_bitrate
     0  // minimum_fps_target (0 = framerate)
   };
 
