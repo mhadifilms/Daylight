@@ -455,6 +455,20 @@ const KeyCodeMap kKeyCodesMap[] = {
     };
   }
 
+  CGDirectDisplayID target_display(const macos_input_t *macos_input) {
+    const auto virtual_display_id = virtual_display_get_id();
+    return virtual_display_id ? static_cast<CGDirectDisplayID>(virtual_display_id) : macos_input->display;
+  }
+
+  CGFloat display_scaling(CGDirectDisplayID display) {
+    const CGDisplayModeRef mode = CGDisplayCopyDisplayMode(display);
+    const CGFloat scaling = mode ? ((CGFloat) CGDisplayPixelsWide(display)) / ((CGFloat) CGDisplayModeGetPixelWidth(mode)) : 1.0;
+    if (mode) {
+      CFRelease(mode);
+    }
+    return scaling;
+  }
+
   /**
    * @brief Post a mouse event at the clamped display location.
    *
@@ -476,7 +490,7 @@ const KeyCodeMap kKeyCodesMap[] = {
     BOOST_LOG(debug) << "mouse_event: "sv << button << ", type: "sv << type << ", location:"sv << raw_location.x << ":"sv << raw_location.y << " click_count: "sv << click_count;
 
     const auto macos_input = static_cast<macos_input_t *>(input.get());
-    const auto display = macos_input->display;
+    const auto display = target_display(macos_input);
     const auto event = macos_input->mouse_event;
 
     // get display bounds for current display
@@ -546,8 +560,8 @@ const KeyCodeMap kKeyCodesMap[] = {
     const float y
   ) {
     const auto macos_input = static_cast<macos_input_t *>(input.get());
-    const auto scaling = macos_input->displayScaling;
-    const auto display = macos_input->display;
+    const auto display = target_display(macos_input);
+    const auto scaling = display_scaling(display);
 
     auto location = util::point_t {x * scaling, y * scaling};
     CGRect display_bounds = CGDisplayBounds(display);
