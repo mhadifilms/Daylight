@@ -478,6 +478,7 @@ const KeyCodeMap kKeyCodesMap[] = {
    * @param raw_location Requested mouse location.
    * @param previous_location Previous mouse location.
    * @param click_count Click count for the event.
+   * @param warp_cursor Whether to explicitly warp the cursor after posting.
    */
   void post_mouse(
     input_t &input,
@@ -485,7 +486,8 @@ const KeyCodeMap kKeyCodesMap[] = {
     const CGEventType type,
     const util::point_t raw_location,
     const util::point_t previous_location,
-    const int click_count
+    const int click_count,
+    const bool warp_cursor
   ) {
     BOOST_LOG(debug) << "mouse_event: "sv << button << ", type: "sv << type << ", location:"sv << raw_location.x << ":"sv << raw_location.y << " click_count: "sv << click_count;
 
@@ -518,7 +520,9 @@ const KeyCodeMap kKeyCodesMap[] = {
     CGEventPost(kCGHIDEventTap, event);
     // For why this is here, see:
     // https://stackoverflow.com/questions/15194409/simulated-mouseevent-not-working-properly-osx
-    CGWarpMouseCursorPosition(location);
+    if (warp_cursor) {
+      CGWarpMouseCursorPosition(location);
+    }
   }
 
   /**
@@ -550,7 +554,7 @@ const KeyCodeMap kKeyCodesMap[] = {
     const auto current = get_mouse_loc(input);
 
     const auto location = util::point_t {current.x + deltaX, current.y + deltaY};
-    post_mouse(input, kCGMouseButtonLeft, event_type_mouse(input), location, current, 0);
+    post_mouse(input, kCGMouseButtonLeft, event_type_mouse(input), location, current, 0, false);
   }
 
   void abs_mouse(
@@ -569,7 +573,7 @@ const KeyCodeMap kKeyCodesMap[] = {
     location.x += display_bounds.origin.x;
     location.y += display_bounds.origin.y;
 
-    post_mouse(input, kCGMouseButtonLeft, event_type_mouse(input), location, get_mouse_loc(input), 0);
+    post_mouse(input, kCGMouseButtonLeft, event_type_mouse(input), location, get_mouse_loc(input), 0, true);
   }
 
   void button_mouse(input_t &input, const int button, const bool release) {
@@ -603,9 +607,9 @@ const KeyCodeMap kKeyCodesMap[] = {
     const auto mouse_position = get_mouse_loc(input);
 
     if (now < macos_input->last_mouse_event[mac_button][release] + MULTICLICK_DELAY_MS) {
-      post_mouse(input, mac_button, event, mouse_position, mouse_position, 2);
+      post_mouse(input, mac_button, event, mouse_position, mouse_position, 2, false);
     } else {
-      post_mouse(input, mac_button, event, mouse_position, mouse_position, 1);
+      post_mouse(input, mac_button, event, mouse_position, mouse_position, 1, false);
     }
 
     macos_input->last_mouse_event[mac_button][release] = now;
