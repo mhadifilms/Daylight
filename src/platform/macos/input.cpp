@@ -875,11 +875,6 @@ const KeyCodeMap kKeyCodesMap[] = {
       supported_gamepad_t {"macos-hid", true, "gamepads.macos_hid"}
     };
 
-    if (input) {
-      const auto macos_input = static_cast<macos_input_t *>(input->get());
-      return macos_input->hid_available ? available_gamepads : unavailable_gamepads;
-    }
-
     return [HIDGamepad isAvailable] ? available_gamepads : unavailable_gamepads;
   }
 
