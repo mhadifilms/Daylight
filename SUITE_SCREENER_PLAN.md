@@ -265,7 +265,8 @@ host-initiated warps. This avoids per-frame compositing in every renderer backen
      (encrypted when `controlProtocolType == 13`);
    - force `display_cursor = false` for capture (client renders it), restoring on
      session end — the capture backends already honor this live.
-3. Config gate `cursor_channel = enabled|disabled` (default enabled) beside
+3. Config gate `cursor_channel = enabled|disabled` (default disabled until
+   hardware validation is complete) beside
    `clipboard_sync`.
 
 ### 4.4 Client (Screener) implementation

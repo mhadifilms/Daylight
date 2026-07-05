@@ -16,7 +16,7 @@ Suite was previously named Daylight; existing `daylight` launchers keep working.
 - Native `IOHIDUserDevice` virtual gamepads, without the keyboard-emulation fallback used by older Lumen builds. This requires Apple's virtual HID entitlement or an AMFI-disabled research setup.
 - Core Audio tap support with compatibility aliases for `audio_sink = system`, `desktop`, and `screencapturekit`.
 - Retina and virtual-display mouse coordinate fixes, plus reduced cursor-warp traffic.
-- Client-side cursor support: the host honors Moonlight's cursor-capture toggle (Ctrl+Alt+Shift+N) live on both ScreenCaptureKit and AVFoundation, so the client can render its own pointer without a doubled host cursor.
+- Client-side cursor support: the host honors Moonlight's cursor-capture toggle (Ctrl+Alt+Shift+N) live on both ScreenCaptureKit and AVFoundation, so the client can render its own pointer without a doubled host cursor. The experimental Suite cursor-shape channel is disabled by default until hardware validation is complete.
 - Network-stall resilience: session ping timeout is 30 seconds on macOS hosts, and input rides the reliable control channel, so keystrokes typed during a brief stall are delivered when the connection recovers instead of being dropped.
 - Clipboard paste to host: Moonlight's Ctrl+Alt+Shift+V paste combo types client clipboard text on the Mac via native Unicode text events.
 - `key_swap_cmd_ctrl` option: swaps Ctrl and Cmd so Ctrl+C/V/Z from Windows or Linux clients arrive as Cmd+C/V/Z on the Mac host. Leave it off when connecting from macOS clients, which already send Cmd correctly.
