@@ -393,6 +393,9 @@ namespace nvhttp {
     launch_session->continuous_audio = util::from_view(get_arg(args, "continuousAudio", "0"));
     launch_session->gcmap = (int) util::from_view(get_arg(args, "gcmap", "0"));
     launch_session->enable_hdr = util::from_view(get_arg(args, "hdrMode", "0"));
+    // Suite extension: only Screener clients send this. Stock clients omit it (defaults off),
+    // so they keep receiving the host-rendered (baked) cursor as normal.
+    launch_session->suite_cursor = util::from_view(get_arg(args, "suiteCursor", "0"));
 
     // Encrypted RTSP is enabled with client reported corever >= 1
     auto corever = util::from_view(get_arg(args, "corever", "0"));

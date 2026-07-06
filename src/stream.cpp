@@ -537,6 +537,7 @@ namespace stream {
       platf::feedback_queue_t feedback_queue;
       safe::mail_raw_t::event_t<video::hdr_info_t> hdr_queue;
       std::uint64_t cursor_shape_hash {};
+      bool cursor_channel_active {false};  ///< Suite: client negotiated local cursor rendering for this session.
     } control;  ///< Runtime state for the encrypted GameStream control channel.
 
     std::uint32_t launch_session_id;  ///< RTSP launch-session ID associated with this stream.
@@ -1132,7 +1133,10 @@ namespace stream {
 #ifndef __APPLE__
     return 0;
 #else
-    if (!config::sunshine.cursor_channel || !session->control.peer) {
+    // Only stream cursor shapes to clients that negotiated local cursor rendering.
+    // Stock Moonlight clients (e.g. iPhone/iPad) never set this, so they receive the
+    // normal baked-in cursor and never see these unknown control packets.
+    if (!config::sunshine.cursor_channel || !session->control.cursor_channel_active || !session->control.peer) {
       return 0;
     }
 
@@ -2297,6 +2301,9 @@ namespace stream {
           display_device::revert_configuration();
         }
 
+        // Restore the baked cursor for the next (possibly stock) client.
+        display_cursor = true;
+
         platf::streaming_will_stop();
       }
 
@@ -2332,6 +2339,10 @@ namespace stream {
 
       session.pingTimeout = std::chrono::steady_clock::now() + config::stream.ping_timeout;
 
+      // Suite: when the client renders the cursor locally, stop baking it into the captured
+      // frame (avoids a laggy double cursor). Stock clients keep the baked cursor.
+      display_cursor = !(config::sunshine.cursor_channel && session.control.cursor_channel_active);
+
       session.audioThread = std::thread {audioThread, &session};
       session.videoThread = std::thread {videoThread, &session};
 
@@ -2363,6 +2374,7 @@ namespace stream {
       session->config = config;
 
       session->control.connect_data = launch_session.control_connect_data;
+      session->control.cursor_channel_active = launch_session.suite_cursor;
       session->control.feedback_queue = mail->queue<platf::gamepad_feedback_msg_t>(mail::gamepad_feedback);
       session->control.hdr_queue = mail->event<video::hdr_info_t>(mail::hdr);
       session->control.legacy_input_enc_iv = launch_session.iv;
